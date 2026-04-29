@@ -32,6 +32,7 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "floaterMotion.H"
+#include "ipc_pipes.H"
 #include "septernion.H"
 #include "MatrixTools.H" //Only needed to printMatrix
 #include "fvCFD.H" //Needed by calcAddedMass()
@@ -39,12 +40,13 @@ License
 #include "uniformDimensionedFields.H"
 #include "symmTransformField.H"
 #include "addToRunTimeSelectionTable.H"
+#include <sys/types.h>
 
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
 namespace Foam
 {
-    defineTypeNameAndDebug(floaterMotion, 0);
+    defineTypeNameAndDebug(floaterMotion, 1);
 }
 
 // * * * * * * * * * * * * * Private Member Functions  * * * * * * * * * * * //
@@ -75,7 +77,12 @@ Foam::floaterMotion::floaterMotion(const Time& time)
     tau0_(Zero),
     restraintForce_(Zero),
     restraintTorque_(Zero),
-    patches_()
+    patches_(),
+    isGivenMotion(false),
+    givenX(Zero),
+    givenQ(Zero),
+    givenV(Zero),
+    givenOmega(Zero)
 {}
 
 
@@ -107,7 +114,8 @@ Foam::floaterMotion::floaterMotion
     tau0_(stateDict.getOrDefault("tau0", vector::zero)),
     restraintForce_(Zero),
     restraintTorque_(Zero),
-    patches_(dict.get<wordRes>("patches"))
+    patches_(dict.get<wordRes>("patches")),
+    isGivenMotion(false)
 {
 
     Info << endl;
@@ -119,6 +127,8 @@ Foam::floaterMotion::floaterMotion
     Info << "momentOfInertiaRefPoint: " << momentOfInertiaRefPoint_ << " and "
         << endl;
     Info << "momentOfInertiaAxes: " << momentOfInertiaAxes_ << endl;
+    Info << "isGivenMotion: " << isGivenMotion << endl;
+    std::cout << "this = " << this << std::endl;
 
     // Transform momentOfInertia tensor to lab axes
     tensor J = (momentOfInertiaAxes_ & momentOfInertia_) & momentOfInertiaAxes_;
@@ -153,6 +163,11 @@ Foam::floaterMotion::floaterMotion
 
     // Save the old-time motion state
     motionState0_ = motionState_;
+
+    // PipeChannel::create_pipes();
+    // std::cout << "ch = " << (void*)ch << std::endl;
+    // ch = new PipeChannel(PIPE_OFO_TO_OFA, PIPE_OFA_TO_OFO);
+    // std::cout << "ch = " << (void*)ch << std::endl;
 }
 
 
@@ -180,7 +195,12 @@ Foam::floaterMotion::floaterMotion
     tau0_(rbm.tau0_),
     restraintForce_(rbm.restraintForce_),
     restraintTorque_(rbm.restraintTorque_),
-    patches_(rbm.patches_)
+    patches_(rbm.patches_),
+    isGivenMotion(rbm.isGivenMotion),
+    givenX(rbm.givenX),
+    givenQ(rbm.givenQ),
+    givenV(rbm.givenV),
+    givenOmega(rbm.givenOmega)
 {}
 
 
@@ -335,8 +355,23 @@ void Foam::floaterMotion::updateFloaterState
     motionState_.a() = a;
     motionState_.domegadt() = alpha;
 
-    label nSteps = 1e3;
+    // label nSteps = 1e3;
+    label nSteps = 1;
     scalar dt = deltaT/nSteps;
+    vector x0 = motionState_.centreOfRotation();
+    vector v0 = motionState_.v();
+    Info << "x0 = " << x0 << endl;
+    Info << "v0 = " << v0 << endl;
+    Info << "isGivenMotion = " << isGivenMotion << endl;
+    std::cout << "this = " << this << std::endl;
+    if (isGivenMotion) {
+        Info << "givenX = " << givenX << endl;
+        motionState_.centreOfRotation() = givenX;
+        motionState_.v() = givenV;
+        motionState_.omega() = givenOmega;
+        motionState_.Q() = givenQ;
+        return;
+    }
 
     for (label n = 1; n <= nSteps; n++)
     {
@@ -411,8 +446,71 @@ Foam::scalarField Foam::floaterMotion::calcAcceleration
 
     // Defining RHS in the equation Meff*ddt[v, w] = [F0 - wxmXcmw, tau0 - wxIw]
     SMatrix Meff({6, 6}, 0);
-    Meff = changeFrame(Madd_, Q.T()) + Mbody;
+    // Meff = changeFrame(Madd_, Q.T()) + Mbody;
+    Meff = changeFrame(Madd_, Q.T());
+
+    SimMessage out{};
+    out.step = 0;
+    out.n_values = 6;
+    out.values[0] = F0[0];
+    out.values[1] = F0[1];
+    out.values[2] = F0[2];
+    out.values[3] = tau0[0];
+    out.values[4] = tau0[1];
+    out.values[5] = tau0[2];
+    for (int c = 0; c < 6; c++) {
+        for (int r = 0; r < 6; r++) {
+            out.values[out.n_values++] = Meff(r, c);
+        }
+    }
+
+    PipeChannel::GetInstance()->send(out);
+
+
     scalarField RHS(6), dvwdt(6);
+
+    // std::cout << "Receiving data" << std::endl;
+    SimMessage in = PipeChannel::GetInstance()->recv();
+    dvwdt = 0;
+    for (int i = 0; i < in.n_values; i++) {
+        std::cout << "in[" << i << "] = " << in.values[i] << std::endl;
+    }
+
+    givenX[0] = in.values[0] + 100;
+    givenX[1] = in.values[1] + 52.5;
+    givenX[2] = in.values[2] + 100;
+
+    double w = in.values[3];
+    vector quatV;
+    quatV[0] = in.values[4];
+    quatV[1] = in.values[5];
+    quatV[2] = in.values[6];
+    quaternion rot(w, quatV);
+    givenQ = rot.R();
+
+    givenV[0] = in.values[7];
+    givenV[1] = in.values[8];
+    givenV[2] = in.values[9];
+
+    givenOmega[0] = in.values[10];
+    givenOmega[1] = in.values[11];
+    givenOmega[2] = in.values[12];
+
+    dvwdt[0] = in.values[13];
+    dvwdt[1] = in.values[14];
+    dvwdt[2] = in.values[15];
+    dvwdt[3] = in.values[16];
+    dvwdt[4] = in.values[17];
+    dvwdt[5] = in.values[18];
+    isGivenMotion = true;
+    Info << "dvwdt = " << dvwdt << endl;
+    Info << "givenX = " << givenX << endl;
+    Info << "givenQ = " << givenQ << endl;
+    Info << "givenV = " << givenV << endl;
+    Info << "givenOmega = " << givenOmega << endl;
+    return dvwdt;
+
+
     vector omega = motionState_.omega();
     vector wxIw = omega ^ (I_lf & omega);
     vector wxmXcmw = omega ^ (mXcm & omega);

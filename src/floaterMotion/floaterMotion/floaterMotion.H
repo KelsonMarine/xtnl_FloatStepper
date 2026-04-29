@@ -114,6 +114,15 @@ class floaterMotion
         //- Names of patches making up the rigid body
         wordRes patches_;
 
+        // IPC Communication manager
+        // PipeChannel* ch = nullptr;
+        bool isGivenMotion = false;
+
+        vector givenX;
+        tensor givenQ;
+        vector givenV;
+        vector givenOmega;
+
 public:
 
     // Member Functions
