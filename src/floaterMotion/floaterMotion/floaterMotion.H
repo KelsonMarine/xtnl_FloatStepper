@@ -66,6 +66,10 @@ class floaterMotion
         //- Orientation of initial state
         tensor initialQ_;
 
+        // Translation offset from openfast reported position to body COM
+        // TODO: this should be fixed on the OpenFAST side eventually
+        vector openfastOffset_;
+
         //- Mass of the body
         scalar mass_;
 

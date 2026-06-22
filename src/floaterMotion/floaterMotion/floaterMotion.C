@@ -104,6 +104,7 @@ Foam::floaterMotion::floaterMotion
     initialCentreOfMass_(stateDict.get<point>("initialCentreOfMass")),
     initialCentreOfRotation_(stateDict.get<point>("initialCentreOfRotation")),
     initialQ_(stateDict.get<tensor>("initialOrientation")),
+    openfastOffset_(stateDict.getOrDefault<vector>("openfastOffset", vector::zero)),
     mass_(stateDict.get<scalar>("mass")),
     momentOfInertia_(stateDict.get<symmTensor>("momentOfInertia")),
     momentOfInertiaRefPoint_(stateDict.getOrDefault<vector>("momentOfInertiaRefPoint", centreOfRotation())),
@@ -129,6 +130,7 @@ Foam::floaterMotion::floaterMotion
     Info << "momentOfInertiaAxes: " << momentOfInertiaAxes_ << endl;
     Info << "isGivenMotion: " << isGivenMotion << endl;
     std::cout << "this = " << this << std::endl;
+    Info << "openfast Offset: " << openfastOffset_ << endl;
 
     // Transform momentOfInertia tensor to lab axes
     tensor J = (momentOfInertiaAxes_ & momentOfInertia_) & momentOfInertiaAxes_;
@@ -476,9 +478,9 @@ Foam::scalarField Foam::floaterMotion::calcAcceleration
         std::cout << "in[" << i << "] = " << in.values[i] << std::endl;
     }
 
-    givenX[0] = in.values[0] + 100;
-    givenX[1] = in.values[1] + 52.5;
-    givenX[2] = in.values[2] + 100;
+    givenX[0] = in.values[0] + openfastOffset_.x();
+    givenX[1] = in.values[1] + openfastOffset_.y();
+    givenX[2] = in.values[2] + openfastOffset_.z();
 
     double w = in.values[3];
     vector quatV;
