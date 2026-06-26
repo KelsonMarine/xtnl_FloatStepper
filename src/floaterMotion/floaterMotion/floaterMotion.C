@@ -451,6 +451,12 @@ Foam::scalarField Foam::floaterMotion::calcAcceleration
     // Meff = changeFrame(Madd_, Q.T()) + Mbody;
     Meff = changeFrame(Madd_, Q.T());
 
+    scalarField RHS(6), dvwdt(6);
+    vector quatV;
+
+    if (Pstream::master()) {
+
+
     SimMessage out{};
     out.step = 0;
     out.n_values = 6;
@@ -468,9 +474,6 @@ Foam::scalarField Foam::floaterMotion::calcAcceleration
 
     PipeChannel::GetInstance()->send(out);
 
-
-    scalarField RHS(6), dvwdt(6);
-
     // std::cout << "Receiving data" << std::endl;
     SimMessage in = PipeChannel::GetInstance()->recv();
     dvwdt = 0;
@@ -483,7 +486,6 @@ Foam::scalarField Foam::floaterMotion::calcAcceleration
     givenX[2] = in.values[2] + openfastOffset_.z();
 
     double w = in.values[3];
-    vector quatV;
     quatV[0] = in.values[4];
     quatV[1] = in.values[5];
     quatV[2] = in.values[6];
@@ -504,6 +506,17 @@ Foam::scalarField Foam::floaterMotion::calcAcceleration
     dvwdt[3] = in.values[16];
     dvwdt[4] = in.values[17];
     dvwdt[5] = in.values[18];
+
+
+    }
+
+    Pstream::broadcast(givenX);
+    Pstream::broadcast(quatV);
+    Pstream::broadcast(givenV);
+    Pstream::broadcast(givenOmega);
+    Pstream::broadcast(givenQ);
+    Pstream::broadcast(dvwdt);
+
     isGivenMotion = true;
     Info << "dvwdt = " << dvwdt << endl;
     Info << "givenX = " << givenX << endl;
